@@ -1,0 +1,950 @@
+/* =========================================
+   ORBITGUARD - OPERATIONS CONSOLE UI
+   Tokens first, then layout, then components.
+========================================= */
+
+:root {
+  --bg: #0a0e14;
+  --surface: #10151d;
+  --surface-2: #161d28;
+  --line: #222c3a;
+  --line-strong: #2f3c4f;
+
+  --text: #e6ebf2;
+  --muted: #8b98aa;
+  --faint: #5d6a7c;
+
+  --accent: #5aa7ff;
+  --accent-soft: rgba(90, 167, 255, 0.14);
+
+  --ok: #4cc38a;
+  --warn: #e8a94a;
+  --danger: #f06c6c;
+
+  --ok-soft: rgba(76, 195, 138, 0.14);
+  --warn-soft: rgba(232, 169, 74, 0.14);
+  --danger-soft: rgba(240, 108, 108, 0.14);
+
+  --rail: 420px;
+  --topbar: 56px;
+  --radius: 10px;
+  --radius-sm: 6px;
+
+  --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mono,
+.data-list dd,
+.collision-table td,
+.risk-card strong,
+.tca-countdown {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* =========================================
+   APP SHELL
+========================================= */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.topbar {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--topbar);
+  padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+}
+
+.brand-name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.topbar-subtitle {
+  padding-left: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  border-left: 1px solid var(--line-strong);
+  white-space: nowrap;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.status.ok::before {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.status.pending::before {
+  background: var(--warn);
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.status.error::before {
+  background: var(--danger);
+}
+
+/* =========================================
+   GLOBE + MONITORING RAIL
+========================================= */
+
+.globe-container {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #04070c;
+}
+
+/* Cesium injects its own inner .cesium-viewer element, so only the direct
+   child of the container is positioned here (`>`); otherwise offsets double. */
+.globe-container > .cesium-viewer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Reserve the rail's width so the globe is never covered by panels. */
+.globe-container.has-rail > .cesium-viewer {
+  left: var(--rail);
+  width: calc(100% - var(--rail));
+}
+
+#orbitguard-monitoring-panels {
+  position: absolute;
+  z-index: 15;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--rail);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+#orbitguard-monitoring-panels > section {
+  flex-shrink: 0;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* =========================================
+   SHARED PANEL PARTS
+========================================= */
+
+.panel-header,
+.float-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.panel-subtitle {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.subhead {
+  margin: 20px 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+section p {
+  margin: 0;
+}
+
+.panel-status {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.list-count {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.empty {
+  padding: 12px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.note {
+  margin-top: 14px !important;
+  padding-left: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  border-left: 2px solid var(--line-strong);
+}
+
+/* Label / value rows */
+.data-list {
+  margin: 0;
+}
+
+.field {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.field:last-child {
+  border-bottom: 0;
+}
+
+.data-list dt {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.data-list dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* =========================================
+   BUTTONS
+========================================= */
+
+.btn {
+  min-height: 34px;
+  padding: 0 14px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: #1e2837;
+  border-color: #3f5069;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  color: #06121f;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: #7bb9ff;
+  border-color: #7bb9ff;
+}
+
+.btn.danger {
+  color: var(--danger);
+  background: transparent;
+  border-color: rgba(240, 108, 108, 0.45);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+.btn.ghost {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+
+.btn.small {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.btn.floating {
+  background: var(--surface);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+/* =========================================
+   INDIAN MISSIONS
+========================================= */
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.chip {
+  padding: 3px 9px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.segmented button {
+  min-height: 28px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.segmented button:hover {
+  color: var(--text);
+}
+
+.segmented button.active {
+  color: var(--text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(90, 167, 255, 0.45);
+}
+
+.indian-satellite-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.indian-satellite-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 4px 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.indian-satellite-info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.indian-satellite-info strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.indian-satellite-info span {
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.indian-satellite-info .mission-category {
+  color: var(--accent);
+  text-transform: capitalize;
+}
+
+.indian-satellite-card .btn {
+  flex-shrink: 0;
+}
+
+/* =========================================
+   SATELLITE LEGEND
+========================================= */
+
+.legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.swatch {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+/* =========================================
+   RISK SUMMARY + TABLE + ALERTS
+========================================= */
+
+.risk-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+
+.risk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 8px;
+}
+
+.risk-card strong {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.risk-card span {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.risk-card.high {
+  border-left-color: var(--danger);
+}
+
+.risk-card.medium {
+  border-left-color: var(--warn);
+}
+
+.risk-card.low {
+  border-left-color: var(--ok);
+}
+
+.collision-table-wrapper {
+  max-width: 100%;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.collision-table {
+  width: 100%;
+  min-width: 540px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.collision-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-strong);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.collision-table td {
+  padding: 9px 10px;
+  color: var(--text);
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  vertical-align: top;
+}
+
+.collision-table tbody tr {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.collision-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.collision-table tbody tr.selected-encounter {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.priority,
+.alert-priority {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.priority.high,
+.alert-priority.high {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.priority.medium,
+.alert-priority.medium {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.priority.low,
+.alert-priority.low {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.priority.no-alert,
+.alert-priority.no-screening-alert {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.tca-boundary-warning,
+.tca-warning {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 10px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.alert-item {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.alert-item-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.alert-item-header strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.alert-explanation {
+  margin-top: 8px !important;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.encounter-vectors {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.encounter-vectors summary {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* =========================================
+   FLOATING PANELS OVER THE GLOBE
+========================================= */
+
+.tca-panel,
+.object-details-panel {
+  position: absolute;
+  z-index: 20;
+  right: 12px;
+  width: min(340px, calc(100% - 24px));
+  overflow-y: auto;
+  padding: 16px;
+  background: rgba(16, 21, 29, 0.96);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.object-details-panel {
+  top: 56px;
+  max-height: calc(54% - 56px);
+}
+
+.tca-panel {
+  bottom: 40px;
+  max-height: 42%;
+  border-left: 3px solid var(--warn);
+}
+
+.tca-countdown {
+  margin: 0 0 10px !important;
+  color: var(--warn);
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* =========================================
+   SIMULATION
+========================================= */
+
+.sim-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 12px 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sim-state {
+  display: inline-block;
+}
+
+.sim-state::first-letter {
+  text-transform: uppercase;
+}
+
+.simulation-progress-track {
+  height: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+
+.simulation-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.15s linear;
+}
+
+.simulation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* =========================================
+   RESTORE BAR (re-open hidden panels)
+========================================= */
+
+.dashboard-restore-bar {
+  position: absolute;
+  z-index: 25;
+  top: 12px;
+  left: calc(var(--rail) + 12px);
+  right: 56px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.dashboard-restore-bar .btn {
+  pointer-events: auto;
+}
+
+/* =========================================
+   CESIUM CONTROLS (theme the built-in widgets)
+========================================= */
+
+.cesium-button {
+  color: var(--text) !important;
+  background: var(--surface) !important;
+  border-color: var(--line-strong) !important;
+}
+
+.cesium-button:hover {
+  background: var(--surface-2) !important;
+  border-color: var(--accent) !important;
+}
+
+/* =========================================
+   SCROLLBARS (WebKit)
+========================================= */
+
+#orbitguard-monitoring-panels::-webkit-scrollbar,
+.indian-satellite-list::-webkit-scrollbar,
+.collision-table-wrapper::-webkit-scrollbar,
+.tca-panel::-webkit-scrollbar,
+.object-details-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+#orbitguard-monitoring-panels::-webkit-scrollbar-thumb,
+.indian-satellite-list::-webkit-scrollbar-thumb,
+.collision-table-wrapper::-webkit-scrollbar-thumb,
+.tca-panel::-webkit-scrollbar-thumb,
+.object-details-panel::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 10px;
+}
+
+/* =========================================
+   TABLET + MOBILE
+   Rail becomes a bottom sheet; the globe stays full size above it.
+========================================= */
+
+@media (max-width: 900px) {
+  :root {
+    --rail: 0px;
+  }
+
+  .topbar {
+    padding: 0 14px;
+  }
+
+  .topbar-subtitle {
+    display: none;
+  }
+
+  #orbitguard-monitoring-panels {
+    top: auto;
+    width: 100%;
+    height: 52%;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .globe-container.has-rail > .cesium-viewer {
+    left: 0;
+    width: 100%;
+    height: 48%;
+  }
+
+  .dashboard-restore-bar {
+    top: auto;
+    bottom: calc(52% + 8px);
+    left: 8px;
+    right: 8px;
+  }
+
+  .object-details-panel,
+  .tca-panel {
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+
+  .object-details-panel {
+    top: 8px;
+    max-height: 30%;
+  }
+
+  .tca-panel {
+    top: calc(30% + 16px);
+    bottom: auto;
+    max-height: 26%;
+  }
+}
+
+@media (max-width: 520px) {
+  .brand-name {
+    font-size: 15px;
+  }
+
+  .status {
+    font-size: 12px;
+  }
+
+  .legend {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .indian-satellite-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .indian-satellite-card .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
