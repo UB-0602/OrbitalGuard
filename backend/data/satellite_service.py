@@ -1,9 +1,10 @@
-
 import json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 # =========================================================
@@ -15,14 +16,36 @@ CELESTRAK_URL = "https://celestrak.org/NORAD/elements/gp.php"
 DATA_DIR = Path(__file__).resolve().parent
 CACHE_DIR = DATA_DIR / "cache"
 
-# Keep cached data for 3 hours to reduce repeated requests.
+# Cache successful responses for 3 hours.
 CACHE_HOURS = 3
 
-REQUEST_TIMEOUT = 30
+# Connection timeout: 5 seconds
+# Read timeout: 12 seconds
+REQUEST_TIMEOUT = (5, 12)
 
 REQUEST_HEADERS = {
-    "User-Agent": "OrbitGuard/3.2 satellite monitoring research"
+    "User-Agent": "OrbitGuard/3.2 (satellite monitoring research)"
 }
+
+# Retry temporary upstream failures.
+_HTTP = requests.Session()
+
+_RETRY = Retry(
+    total=2,
+    connect=2,
+    read=1,
+    status=1,
+    backoff_factor=0.5,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset(["GET"]),
+    raise_on_status=False,
+)
+
+_ADAPTER = HTTPAdapter(max_retries=_RETRY)
+
+_HTTP.mount("https://", _ADAPTER)
+_HTTP.mount("http://", _ADAPTER)
+
 
 ALLOWED_GROUPS = {
     "stations",
@@ -36,9 +59,9 @@ ALLOWED_GROUPS = {
 # =========================================================
 # INDIAN SATELLITE MISSION CATALOGUE
 # =========================================================
-# This is a curated metadata catalogue.
-# It does not prove current operational status.
-# NORAD IDs are matched separately against orbital records.
+# Curated metadata only.
+# This does not establish current operational status.
+# Orbital records are retrieved separately using NORAD IDs.
 
 INDIAN_SATELLITES = [
 
@@ -328,8 +351,90 @@ def _save_cache(cache_file, result):
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    with open(cache_file, "w", encoding="utf-8") as file:
+    # Atomic write prevents partially written cache files.
+    temporary_file = cache_file.with_suffix(
+        cache_file.suffix + ".tmp"
+    )
+
+    with open(temporary_file, "w", encoding="utf-8") as file:
         json.dump(result, file, indent=4)
+
+    temporary_file.replace(cache_file)
+
+
+def _return_stale_cache(cached, group_or_id):
+
+    """Return old orbital data with an explicit stale-data warning."""
+
+    if not cached or not cached.get("satellites"):
+        return None
+
+    result = dict(cached)
+
+    result["cache_status"] = (
+        "STALE CACHE - CelesTrak unavailable"
+    )
+
+    result["requested_group_or_norad_id"] = group_or_id
+
+    try:
+        fetched_at = datetime.fromisoformat(
+            result["fetched_at"]
+        )
+
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(
+                tzinfo=timezone.utc
+            )
+
+        age = datetime.now(timezone.utc) - fetched_at
+
+        result["cache_age_hours"] = round(
+            age.total_seconds() / 3600,
+            2
+        )
+
+    except (KeyError, ValueError, TypeError):
+        result["cache_age_hours"] = None
+
+    result["warning"] = (
+        "CelesTrak could not be reached. These are previously "
+        "downloaded orbital elements, not live data. "
+        "Accuracy may degrade as the data ages."
+    )
+
+    return result
+
+
+# =========================================================
+# CELESTRAK REQUEST HELPER
+# =========================================================
+
+def _fetch_celestrak(params):
+
+    response = _HTTP.get(
+        CELESTRAK_URL,
+        params=params,
+        headers=REQUEST_HEADERS,
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    response.raise_for_status()
+
+    try:
+        satellites = response.json()
+
+    except ValueError as error:
+        raise RuntimeError(
+            "CelesTrak returned a response that was not valid JSON"
+        ) from error
+
+    if not isinstance(satellites, list) or not satellites:
+        raise RuntimeError(
+            "CelesTrak returned no satellite records"
+        )
+
+    return satellites
 
 
 def _raise_celestrak_error(error):
@@ -364,30 +469,23 @@ def get_satellite_data(group="stations"):
 
     cached = _read_cache(cache_file)
 
-    # Use fresh cached data before contacting CelesTrak.
+    # Return fresh cache without contacting CelesTrak.
     if _cache_is_fresh(cached):
-        cached["cache_status"] = "Cached data"
-        return cached
 
-    try:
-        response = requests.get(
-            CELESTRAK_URL,
-            params={
-                "GROUP": group,
-                "FORMAT": "JSON",
-            },
-            headers=REQUEST_HEADERS,
-            timeout=REQUEST_TIMEOUT,
+        result = dict(cached)
+
+        result["cache_status"] = (
+            "Cached data (within freshness window)"
         )
 
-        response.raise_for_status()
+        return result
 
-        satellites = response.json()
+    try:
 
-        if not isinstance(satellites, list) or not satellites:
-            raise ValueError(
-                f"No satellite records received for group: {group}"
-            )
+        satellites = _fetch_celestrak({
+            "GROUP": group,
+            "FORMAT": "JSON",
+        })
 
         result = {
             "source": "CelesTrak",
@@ -402,16 +500,25 @@ def get_satellite_data(group="stations"):
 
         return result
 
-    except requests.RequestException as error:
+    except (
+        requests.RequestException,
+        RuntimeError,
+        ValueError
+    ) as error:
 
-        # Use older cached data if CelesTrak blocks or fails.
-        if cached and cached.get("satellites"):
-            cached["cache_status"] = (
-                "Stale cache - CelesTrak unavailable"
-            )
-            return cached
+        # Use old cached records if CelesTrak is unavailable.
+        stale = _return_stale_cache(cached, group)
 
-        _raise_celestrak_error(error)
+        if stale is not None:
+            stale["upstream_error"] = str(error)
+            return stale
+
+        raise RuntimeError(
+            f"CelesTrak is unavailable and no cached data exists "
+            f"for group '{group}'. The service cannot provide "
+            f"satellite records until an upstream request succeeds "
+            f"or a cache is populated. Upstream error: {error}"
+        ) from error
 
 
 # =========================================================
@@ -429,47 +536,41 @@ def get_satellite_by_norad_id(norad_id):
     cached = _read_cache(cache_file)
 
     if _cache_is_fresh(cached):
-        cached["cache_status"] = "Cached data"
-        return cached
 
-    try:
-        response = requests.get(
-            CELESTRAK_URL,
-            params={
-                "CATNR": str(norad_id),
-                "FORMAT": "JSON",
-            },
-            headers=REQUEST_HEADERS,
-            timeout=REQUEST_TIMEOUT,
+        result = dict(cached)
+
+        result["cache_status"] = (
+            "Cached data (within freshness window)"
         )
 
-        response.raise_for_status()
+        return result
 
-        satellites = response.json()
+    try:
 
-        if not isinstance(satellites, list) or not satellites:
-            raise ValueError(
-                f"No orbital data found for NORAD ID {norad_id}"
-            )
+        satellites = _fetch_celestrak({
+            "CATNR": str(norad_id),
+            "FORMAT": "JSON",
+        })
 
-        # Ensure the returned record matches the requested ID.
         matching_satellites = []
 
         for satellite in satellites:
+
             try:
                 returned_id = int(
                     satellite.get("NORAD_CAT_ID", -1)
                 )
 
-                if returned_id == norad_id:
-                    matching_satellites.append(satellite)
-
             except (TypeError, ValueError):
                 continue
 
+            if returned_id == norad_id:
+                matching_satellites.append(satellite)
+
         if not matching_satellites:
-            raise ValueError(
-                f"CelesTrak returned no matching record for NORAD ID {norad_id}"
+            raise RuntimeError(
+                f"CelesTrak returned no matching record "
+                f"for NORAD ID {norad_id}"
             )
 
         result = {
@@ -485,16 +586,26 @@ def get_satellite_by_norad_id(norad_id):
 
         return result
 
-    except requests.RequestException as error:
+    except (
+        requests.RequestException,
+        RuntimeError,
+        ValueError
+    ) as error:
 
-        # Use existing cached orbital data if available.
-        if cached and cached.get("satellites"):
-            cached["cache_status"] = (
-                "Stale cache - CelesTrak unavailable"
-            )
-            return cached
+        stale = _return_stale_cache(
+            cached,
+            norad_id
+        )
 
-        _raise_celestrak_error(error)
+        if stale is not None:
+            stale["upstream_error"] = str(error)
+            return stale
+
+        raise RuntimeError(
+            f"CelesTrak is unavailable and no cached orbital "
+            f"data exists for NORAD ID {norad_id}. "
+            f"Upstream error: {error}"
+        ) from error
 
 
 # =========================================================
@@ -539,7 +650,8 @@ def get_indian_satellite_catalogue(category=None):
     catalogue = [
         satellite.copy()
         for satellite in INDIAN_SATELLITES
-        if category is None or satellite["category"] == category
+        if category is None
+        or satellite["category"] == category
     ]
 
     return {
