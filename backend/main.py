@@ -59,6 +59,9 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "https://orbital-guard-nu.vercel.app",
     ],
+    # Vercel gives every deployment its own URL
+    # (e.g. orbital-guard-abc123-team.vercel.app), so allow those too.
+    allow_origin_regex=r"https://orbital-guard(-[a-z0-9-]+)?\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
